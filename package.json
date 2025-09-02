@@ -1,0 +1,7 @@
+{
+  "name": "crs",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ]
+}
