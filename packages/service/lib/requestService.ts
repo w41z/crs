@@ -1,8 +1,6 @@
 import { DateTime } from "luxon";
 import { ObjectId } from "mongodb";
-import type { Collections } from "../db";
 import {
-  Classes,
   Request,
   type RequestId,
   type RequestInit,
@@ -10,62 +8,40 @@ import {
   type Role,
   type UserId,
 } from "../models";
-import {
-  CourseNotFoundError,
-  RequestNotFoundError,
-  ResponseAlreadyExistsError,
-  UserClassEnrollmentError,
-  UserNotFoundError,
-  UserPermissionError,
-} from "./error";
+import { assertAck, BaseService } from "./baseService";
+import { ResponseAlreadyExistsError } from "./error";
+import { assertClassRole } from "./permission";
 
-export class RequestService {
-  private collections: Collections;
-
-  constructor(collection: Collections) {
-    this.collections = collection;
-  }
-
+export class RequestService extends BaseService {
   async createRequest(from: UserId, data: RequestInit): Promise<string> {
-    const user = await this.collections.users.findOne({ email: from });
-    if (!user) throw new UserNotFoundError(from);
-
-    UserPermissionError.assertRole(
-      user,
-      data.class,
-      "student",
-      `create request`,
-    );
-
-    const course = await this.collections.courses.findOne({
-      code: data.class.course.code,
-      term: data.class.course.term,
-    });
-    if (!course) throw new CourseNotFoundError(data.class.course);
-
-    const enrolled = user.enrollment.some(
-      (e) => Classes.id2str(e) === Classes.id2str(data.class),
-    );
-    if (!enrolled) throw new UserClassEnrollmentError(from, data.class);
+    const user = await this.requireUser(from);
+    // only students in the class can create requests
+    assertClassRole(user, data.class, ["student"], "creating request");
 
     const id = new ObjectId().toHexString();
     const result = await this.collections.requests.insertOne({
+      ...data,
       id,
       from,
       timestamp: DateTime.now().toISO(),
       response: null,
-      ...data,
     });
-    if (!result.acknowledged) {
-      throw new Error(`Failed to create request.`);
-    }
-
+    assertAck(result, `create request ${JSON.stringify(data)}`);
     return id;
   }
 
-  async getRequest(id: RequestId): Promise<Request> {
-    const request = await this.collections.requests.findOne({ id });
-    if (!request) throw new RequestNotFoundError(id);
+  async getRequest(uid: UserId, id: RequestId): Promise<Request> {
+    const user = await this.requireUser(uid);
+    const request = await this.requireRequest(id);
+    if (uid !== request.from) {
+      // only the requester or instructors/TAs in the class can view the request
+      assertClassRole(
+        user,
+        request.class,
+        ["instructor", "ta"],
+        `viewing request ${id}`,
+      );
+    }
     return Request.parse({ ...request });
   }
 
@@ -80,8 +56,7 @@ export class RequestService {
    * @throws UserNotFoundError if the user does not exist
    */
   async getRequestsAs(uid: UserId, role: Role): Promise<Request[]> {
-    const user = await this.collections.users.findOne({ email: uid });
-    if (!user) throw new UserNotFoundError(uid);
+    const user = await this.requireUser(uid);
 
     const requests = await this.collections.requests
       .find({
@@ -117,34 +92,31 @@ export class RequestService {
     rid: RequestId,
     response: ResponseInit,
   ): Promise<void> {
-    const user = await this.collections.users.findOne({ email: uid });
-    if (!user) throw new UserNotFoundError(uid);
-
-    const request = await this.collections.requests.findOne({ id: rid });
-    if (!request) throw new RequestNotFoundError(rid);
-    if (request.response) throw new ResponseAlreadyExistsError(rid);
-
-    UserPermissionError.assertRole(
+    const user = await this.requireUser(uid);
+    const request = await this.requireRequest(rid);
+    // only instructors of the class can create responses
+    assertClassRole(
       user,
       request.class,
-      "instructor",
-      `create response for request ${rid}`,
+      ["instructor"],
+      `creating response for request ${rid}`,
     );
+    if (request.response) {
+      throw new ResponseAlreadyExistsError(rid);
+    }
 
     const result = await this.collections.requests.updateOne(
       { id: rid },
       {
         $set: {
           response: {
+            ...response,
             from: uid,
             timestamp: DateTime.now().toISO(),
-            ...response,
           },
         },
       },
     );
-    if (!result.acknowledged) {
-      throw new Error(`Failed to create response.`);
-    }
+    assertAck(result, `create response to ${rid}`);
   }
 }

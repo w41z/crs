@@ -1,87 +1,71 @@
-import type { Collections } from "../db";
-import { type Course, type CourseId, Request, type UserId } from "../models";
-import { CourseNotFoundError, UserNotFoundError } from "./error";
+import type { Course, CourseId, UserId } from "../models";
+import { assertAck, BaseService } from "./baseService";
+import { assertCourseInstructor, assertInCourse } from "./permission";
 
-export class CourseService {
-  private collections: Collections;
-  constructor(collection: Collections) {
-    this.collections = collection;
+export class CourseService extends BaseService {
+  async getCourse(uid: UserId, courseId: CourseId): Promise<Course> {
+    const user = await this.requireUser(uid);
+    assertInCourse(user, courseId, "accessing course information");
+    return this.requireCourse(courseId);
   }
 
-  async createCourse(data: Course): Promise<void> {
-    const result = await this.collections.courses.insertOne(data);
-    if (!result.acknowledged) {
-      throw new Error(
-        `Failed to create course with data: ${JSON.stringify(data)}`,
-      );
+  async getCoursesFromEnrollment(uid: UserId): Promise<Course[]> {
+    const user = await this.requireUser(uid);
+    const courseIds = user.enrollment.map((e) => ({
+      code: e.course.code,
+      term: e.course.term,
+    }));
+    // MongoDB throws an error when $or receives an empty array
+    if (courseIds.length === 0) {
+      return [];
     }
-  }
-
-  async getCourses(): Promise<Course[]> {
-    return this.collections.courses.find().toArray();
-  }
-
-  async getCourse(courseId: CourseId): Promise<Course> {
-    const course = await this.collections.courses.findOne(courseId);
-    if (!course) throw new CourseNotFoundError(courseId);
-    return course;
-  }
-
-  async getCoursesFromEnrollment(userId: UserId): Promise<Course[]> {
-    const user = await this.collections.users.findOne({ email: userId });
-    if (!user) throw new UserNotFoundError(userId);
-
-    const enrollment = (
-      await Promise.all(
-        user.enrollment.map(async (e) => {
-          const course = await this.collections.courses.findOne({
-            code: e.course.code,
-            term: e.course.term,
-          });
-          return course;
-        }),
-      )
-    ).filter((c) => c !== null);
-    return enrollment;
+    return await this.collections.courses
+      .find({
+        $or: courseIds.map((id) => ({ code: id.code, term: id.term })),
+      })
+      .toArray();
   }
 
   async updateSections(
+    uid: UserId,
     courseId: CourseId,
     sections: Course["sections"],
   ): Promise<void> {
-    const result = await this.collections.courses.updateOne(courseId, {
-      $set: { sections },
-    });
-    if (result.modifiedCount === 0) {
-      throw new Error(
-        `Failed to update sections for course ${courseId.code} (${courseId.term})`,
-      );
-    }
+    assertCourseInstructor(
+      await this.requireUser(uid),
+      courseId,
+      "updating course sections",
+    );
+    const result = await this.collections.courses.updateOne(
+      // cannot use courseId directly, in case of extra fields
+      { code: courseId.code, term: courseId.term },
+      {
+        $set: { sections },
+      },
+    );
+    assertAck(result, `update course ${courseId.code} (${courseId.term})`);
   }
 
   async setEffectiveRequestTypes(
+    uid: UserId,
     courseId: CourseId,
     effectiveRequestTypes: Course["effectiveRequestTypes"],
   ): Promise<void> {
-    const result = await this.collections.courses.updateOne(courseId, {
-      $set: { effectiveRequestTypes },
-    });
-    if (result.modifiedCount === 0) {
-      throw new Error(
-        `Failed to update request types for course ${courseId.code} (${courseId.term})`,
-      );
-    }
-  }
-
-  async getCourseRequests(courseId: CourseId): Promise<Request[]> {
-    const result = await this.collections.requests
-      .find({
-        "course.code": courseId.code,
-        "course.term": courseId.term,
-      })
-      .toArray();
-    return result.map((req) =>
-      Request.parse({ ...req, id: req._id.toHexString() }),
+    assertCourseInstructor(
+      await this.requireUser(uid),
+      courseId,
+      "updating effective request types",
+    );
+    const result = await this.collections.courses.updateOne(
+      // cannot use courseId directly, in case of extra fields
+      { code: courseId.code, term: courseId.term },
+      {
+        $set: { effectiveRequestTypes },
+      },
+    );
+    assertAck(
+      result,
+      `update request types for course ${courseId.code} (${courseId.term})`,
     );
   }
 }

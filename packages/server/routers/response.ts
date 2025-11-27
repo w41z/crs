@@ -19,7 +19,10 @@ export const routerResponse = router({
         input.id,
         input.init,
       );
-      const r = await services.request.getRequest(input.id);
-      await services.notification.notifyNewResponse(r);
+      const request = await services.request.getRequest(
+        ctx.user.email,
+        input.id,
+      );
+      await services.notification.notifyNewResponse(request);
     }),
 });

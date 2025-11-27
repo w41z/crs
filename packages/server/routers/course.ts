@@ -7,8 +7,8 @@ export const routerCourse = router({
   get: procedure
     .input(CourseId)
     .output(Course)
-    .query(({ input }) => {
-      return services.course.getCourse(input);
+    .query(({ input, ctx }) => {
+      return services.course.getCourse(ctx.user.email, input);
     }),
   getEnrollment: procedure
     .input(z.void())

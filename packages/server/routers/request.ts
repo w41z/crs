@@ -7,8 +7,8 @@ export const routerRequest = router({
   get: procedure
     .input(RequestId)
     .output(Request)
-    .query(async ({ input }) => {
-      return await services.request.getRequest(input);
+    .query(({ input, ctx }) => {
+      return services.request.getRequest(ctx.user.email, input);
     }),
   getAll: procedure
     .input(Role)
@@ -21,7 +21,7 @@ export const routerRequest = router({
     .output(RequestId)
     .mutation(async ({ input, ctx }) => {
       const rid = await services.request.createRequest(ctx.user.email, input);
-      const r = await services.request.getRequest(rid);
+      const r = await services.request.getRequest(ctx.user.email, rid);
       await services.notification.notifyNewRequest(r);
       return rid;
     }),

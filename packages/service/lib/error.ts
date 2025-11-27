@@ -1,5 +1,5 @@
-import { type Class, Classes, type RequestId, Users } from "service/models";
-import type { CourseId, Role, User, UserId } from "../models";
+import { type Class, Classes, Courses, type RequestId } from "service/models";
+import type { CourseId, Role, UserId } from "../models";
 
 export class UserNotFoundError extends Error {
   constructor(userId: UserId) {
@@ -8,27 +8,30 @@ export class UserNotFoundError extends Error {
   }
 }
 
-export class UserClassEnrollmentError extends Error {
-  constructor(userId: UserId, clazz: Class) {
+export class CoursePermissionError extends Error {
+  constructor(
+    userId: UserId,
+    roles: Role[],
+    courseId: CourseId,
+    operation: string,
+  ) {
+    const roleStr =
+      roles.length > 0 ? `the role ${roles.join("/")}` : "any role";
     super(
-      `User ${userId} is not enrolled in the class ${Classes.id2str(clazz)}`,
+      `User ${userId} does not have ${roleStr} in course ${Courses.id2str(courseId)} for ${operation}.`,
     );
-    this.name = "UserClassEnrollmentError";
+    this.name = "CoursePermissionError";
   }
 }
 
-export class UserPermissionError extends Error {
-  constructor(userId: UserId, role: string, clazz: Class, operation: string) {
+export class ClassPermissionError extends Error {
+  constructor(userId: UserId, roles: Role[], clazz: Class, operation: string) {
+    const roleStr =
+      roles.length > 0 ? `the role ${roles.join("/")}` : "any role";
     super(
-      `User ${userId} does not have the role ${role} in class ${Classes.id2str(clazz)} for ${operation}.`,
+      `User ${userId} does not have ${roleStr} in class ${Classes.id2str(clazz)} for ${operation}.`,
     );
-    this.name = "UserPermissionError";
-  }
-
-  static assertRole(user: User, clazz: Class, role: Role, operation: string) {
-    if (!Users.hasRole(user, clazz, role)) {
-      throw new UserPermissionError(user.email, role, clazz, operation);
-    }
+    this.name = "ClassPermissionError";
   }
 }
 
