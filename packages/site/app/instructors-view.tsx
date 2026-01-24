@@ -118,10 +118,10 @@ export default function InstructorsView() {
                 key={Courses.id2str(course)}
                 href={`/instructor/admin/${Courses.id2str(course)}`}
               >
-                <Card>
+                <Card className="bg-background">
                   <CardContent>
-                    <p className="font-medium">{Courses.formatID(course)}</p>
-                    <p className="text-sm">{course.title}</p>
+                    <p className="font-medium text-foreground">{Courses.formatID(course)}</p>
+                    <p className="text-foreground text-sm">{course.title}</p>
                   </CardContent>
                 </Card>
               </Link>
